@@ -46,37 +46,59 @@ fn default_keys() -> Keys {
     }
 }
 
+// 顶部 import 保持不变，无需引入 FromStr
+
 fn parse_ev_key(name: &str) -> Option<EventCode> {
-    // 仅支持本程序实际用到的键名；够用且无依赖
-    let k = match name {
+    use EV_KEY::*;
+    let key = match name {
         // DPAD
-        "BTN_DPAD_UP"    => EV_KEY::BTN_DPAD_UP,
-        "BTN_DPAD_DOWN"  => EV_KEY::BTN_DPAD_DOWN,
-        "BTN_DPAD_LEFT"  => EV_KEY::BTN_DPAD_LEFT,
-        "BTN_DPAD_RIGHT" => EV_KEY::BTN_DPAD_RIGHT,
+        "BTN_DPAD_UP"    => BTN_DPAD_UP,
+        "BTN_DPAD_DOWN"  => BTN_DPAD_DOWN,
+        "BTN_DPAD_LEFT"  => BTN_DPAD_LEFT,
+        "BTN_DPAD_RIGHT" => BTN_DPAD_RIGHT,
+
         // 肩键 / 触发键
-        "BTN_TL" => EV_KEY::BTN_TL,
-        "BTN_TR" => EV_KEY::BTN_TR,
-        "BTN_TL2" => EV_KEY::BTN_TL2,
-        "BTN_TR2" => EV_KEY::BTN_TR2,
-        // Trigger Happy
-        "BTN_TRIGGER_HAPPY1" => EV_KEY::BTN_TRIGGER_HAPPY1,
-        "BTN_TRIGGER_HAPPY2" => EV_KEY::BTN_TRIGGER_HAPPY2,
-        "BTN_TRIGGER_HAPPY3" => EV_KEY::BTN_TRIGGER_HAPPY3,
-        "BTN_TRIGGER_HAPPY4" => EV_KEY::BTN_TRIGGER_HAPPY4,
-        "BTN_TRIGGER_HAPPY5" => EV_KEY::BTN_TRIGGER_HAPPY5,
+        "BTN_TL"  => BTN_TL,
+        "BTN_TR"  => BTN_TR,
+        "BTN_TL2" => BTN_TL2,
+        "BTN_TR2" => BTN_TR2,
+
+        // A/B/X/Y & 摇杆按压（方便以后用到）
+        "BTN_SOUTH"  => BTN_SOUTH,
+        "BTN_EAST"   => BTN_EAST,
+        "BTN_NORTH"  => BTN_NORTH,
+        "BTN_WEST"   => BTN_WEST,
+        "BTN_THUMBL" => BTN_THUMBL,
+        "BTN_THUMBR" => BTN_THUMBR,
+
+        // 选择/开始/模式键
+        "BTN_SELECT" => BTN_SELECT,
+        "BTN_START"  => BTN_START,
+        "BTN_MODE"   => BTN_MODE,
+
+        // Trigger Happy（常见 1~10，按需可再加）
+        "BTN_TRIGGER_HAPPY1"  => BTN_TRIGGER_HAPPY1,
+        "BTN_TRIGGER_HAPPY2"  => BTN_TRIGGER_HAPPY2,
+        "BTN_TRIGGER_HAPPY3"  => BTN_TRIGGER_HAPPY3,
+        "BTN_TRIGGER_HAPPY4"  => BTN_TRIGGER_HAPPY4,
+        "BTN_TRIGGER_HAPPY5"  => BTN_TRIGGER_HAPPY5,
+        "BTN_TRIGGER_HAPPY6"  => BTN_TRIGGER_HAPPY6,
+        "BTN_TRIGGER_HAPPY7"  => BTN_TRIGGER_HAPPY7,
+        "BTN_TRIGGER_HAPPY8"  => BTN_TRIGGER_HAPPY8,
+        "BTN_TRIGGER_HAPPY9"  => BTN_TRIGGER_HAPPY9,
+        "BTN_TRIGGER_HAPPY10" => BTN_TRIGGER_HAPPY10,
+
         // 系统键
-        "KEY_VOLUMEUP"   => EV_KEY::KEY_VOLUMEUP,
-        "KEY_VOLUMEDOWN" => EV_KEY::KEY_VOLUMEDOWN,
-        "KEY_PLAYPAUSE"  => EV_KEY::KEY_PLAYPAUSE,
-        "KEY_POWER"      => EV_KEY::KEY_POWER,
-        // 常见选择/开始（可当热键）
-        "BTN_SELECT"     => EV_KEY::BTN_SELECT,
-        "BTN_START"      => EV_KEY::BTN_START,
+        "KEY_VOLUMEUP"   => KEY_VOLUMEUP,
+        "KEY_VOLUMEDOWN" => KEY_VOLUMEDOWN,
+        "KEY_PLAYPAUSE"  => KEY_PLAYPAUSE,
+        "KEY_POWER"      => KEY_POWER,
+
         _ => return None,
     };
-    Some(EventCode::EV_KEY(k))
+    Some(EventCode::EV_KEY(key))
 }
+
 
 fn load_keys_from_conf(path: &str) -> Keys {
     let mut keys = default_keys();
@@ -92,7 +114,7 @@ fn load_keys_from_conf(path: &str) -> Keys {
     }
 
     // 小工具：把 map 里的某键名（如 "HOTKEY"）解析为 EventCode 并赋值
-    let mut set = |field: &str, dst: &mut EventCode| {
+    let set = |field: &str, dst: &mut EventCode| {
         if let Some(name) = map.get(field) {
             if let Some(code) = parse_ev_key(name) {
                 *dst = code;
@@ -101,6 +123,7 @@ fn load_keys_from_conf(path: &str) -> Keys {
             }
         }
     };
+
 
     set("HOTKEY",        &mut keys.hotkey);
     set("BRIGHT_UP",     &mut keys.bright_up);
@@ -118,9 +141,6 @@ fn load_keys_from_conf(path: &str) -> Keys {
     keys
 }
 // ---------------- 最小配置支持到此为止 ----------------
-
-/*fn blink1() { ... }*/
-/*fn blink2() { ... }*/
 
 fn process_event(_dev: &Device, ev: &InputEvent, hotkey: bool, k: &Keys) {
     if hotkey && ev.value == 1 {
