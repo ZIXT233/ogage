@@ -1,0 +1,98 @@
+name: Build ogage (arm64)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Enable QEMU for arm64
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      # 生成容器内执行脚本：安装依赖、装 rustup、构建、打包
+      - name: Prepare container script
+        shell: bash
+        run: |
+          mkdir -p ci
+          cat > ci/container.sh <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          # 使用 Debian buster 的归档源（与示例相同思路）
+          cat >/etc/apt/sources.list <<'EOF'
+          deb http://archive.debian.org/debian buster main contrib non-free
+          deb http://archive.debian.org/debian-security buster/updates main contrib non-free
+          deb http://archive.debian.org/debian buster-updates main contrib non-free
+          EOF
+          echo 'Acquire::Check-Valid-Until "false";' >/etc/apt/apt.conf.d/99no-check-valid-until
+
+          apt -o Acquire::AllowInsecureRepositories=true update
+          DEBIAN_FRONTEND=noninteractive apt -o Acquire::AllowInsecureRepositories=true install -y \
+            build-essential pkg-config binutils \
+            libevdev-dev brightnessctl \
+            ca-certificates curl git
+
+          # 安装 Rust（stable）到 /root/.cargo
+          export CARGO_HOME=/root/.cargo
+          export RUSTUP_HOME=/root/.rustup
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          export PATH="/root/.cargo/bin:$PATH"
+          rustc -V
+          cargo -V
+
+          # 如果仓库不是 ogage 根（例如你把代码放子目录），在这里 cd 对应目录
+          cd /src
+
+          # 兼容你给的“Cargo 有问题”的提示：我们不用系统 cargo/rustc，所以无需 apt remove
+          # 直接构建
+          cargo build --release
+
+          # 裁剪可执行文件
+          strip target/release/ogage || true
+
+          # 打包发布物：二进制 + 一个示例配置
+          mkdir -p build
+          cat > build/ogage.conf.sample <<'CONF'
+          # 可选：把这个文件复制到 /home/ark/ogage.conf 并按需修改
+          HOTKEY=BTN_SELECT
+          BRIGHT_UP=BTN_DPAD_UP
+          BRIGHT_DOWN=BTN_DPAD_DOWN
+          VOL_UP=BTN_DPAD_RIGHT
+          VOL_DOWN=BTN_DPAD_LEFT
+          VOL_UP2=BTN_TR
+          VOL_DOWN2=BTN_TL
+          BRIGHT_DOWN2=BTN_TRIGGER_HAPPY3
+          BRIGHT_UP2=BTN_TRIGGER_HAPPY4
+          VOLUME_UP=KEY_VOLUMEUP
+          VOLUME_DOWN=KEY_VOLUMEDOWN
+          MUTE=KEY_PLAYPAUSE
+          CONF
+
+          cp target/release/ogage build/
+          tar -C build -czf build/ogage-arkos-arm64.tgz ogage ogage.conf.sample
+
+          echo "==== Build outputs ===="
+          ls -lah build
+          SCRIPT
+          chmod +x ci/container.sh
+
+      - name: Build inside arm64 container (Debian buster archive)
+        shell: bash
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD":/src -w /src arm64v8/debian:buster \
+            bash /src/ci/container.sh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ogage-arkos-arm64
+          path: build/ogage-arkos-arm64.tgz
+          if-no-files-found: error
