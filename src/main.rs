@@ -11,118 +11,155 @@ use std::os::unix::io::AsRawFd;
 use mio::{Poll,Events,Token,Interest};
 use mio::unix::SourceFd;
 
-static HOTKEY:         EventCode = EventCode::EV_KEY(EV_KEY::BTN_TRIGGER_HAPPY5);
-static BRIGHT_UP:      EventCode = EventCode::EV_KEY(EV_KEY::BTN_DPAD_UP);
-static BRIGHT_DOWN:    EventCode = EventCode::EV_KEY(EV_KEY::BTN_DPAD_DOWN);
-static VOL_UP:         EventCode = EventCode::EV_KEY(EV_KEY::BTN_DPAD_RIGHT);
-static VOL_DOWN:       EventCode = EventCode::EV_KEY(EV_KEY::BTN_DPAD_LEFT);
-static VOL_UP2:        EventCode = EventCode::EV_KEY(EV_KEY::BTN_TR);
-static VOL_DOWN2:      EventCode = EventCode::EV_KEY(EV_KEY::BTN_TL);
-static BRIGHT_DOWN2:   EventCode = EventCode::EV_KEY(EV_KEY::BTN_TRIGGER_HAPPY3);
-static BRIGHT_UP2:     EventCode = EventCode::EV_KEY(EV_KEY::BTN_TRIGGER_HAPPY4);
-static VOLUME_UP:      EventCode = EventCode::EV_KEY(EV_KEY::KEY_VOLUMEUP);
-static VOLUME_DOWN:    EventCode = EventCode::EV_KEY(EV_KEY::KEY_VOLUMEDOWN);
-static MUTE:           EventCode = EventCode::EV_KEY(EV_KEY::KEY_PLAYPAUSE);
+// ---------------- 新增：最小配置支持 ----------------
+use std::collections::HashMap;
 
-/*fn blink1() {
-    Command::new("brightnessctl").arg("-O").output().expect("Failed to execute brightnessctl");
-
-    Command::new("brightnessctl").args(&["-T","1.5"]).output().expect("Failed to execute brightnessctl");
-    Command::new("sleep").arg("0.1").output().expect("Failed to execute brightnessctl");
-
-    Command::new("brightnessctl").arg("-I").output().expect("Failed to execute brightnessctl");
+struct Keys {
+    hotkey:         EventCode,
+    bright_up:      EventCode,
+    bright_down:    EventCode,
+    vol_up:         EventCode,
+    vol_down:       EventCode,
+    vol_up2:        EventCode,
+    vol_down2:      EventCode,
+    bright_down2:   EventCode,
+    bright_up2:     EventCode,
+    volume_up:      EventCode,
+    volume_down:    EventCode,
+    mute:           EventCode,
 }
 
-fn blink2() {
-    Command::new("brightnessctl").arg("-O").output().expect("Failed to execute brightnessctl");
+fn default_keys() -> Keys {
+    Keys {
+        hotkey:       EventCode::EV_KEY(EV_KEY::BTN_TRIGGER_HAPPY5),
+        bright_up:    EventCode::EV_KEY(EV_KEY::BTN_DPAD_UP),
+        bright_down:  EventCode::EV_KEY(EV_KEY::BTN_DPAD_DOWN),
+        vol_up:       EventCode::EV_KEY(EV_KEY::BTN_DPAD_RIGHT),
+        vol_down:     EventCode::EV_KEY(EV_KEY::BTN_DPAD_LEFT),
+        vol_up2:      EventCode::EV_KEY(EV_KEY::BTN_TR),
+        vol_down2:    EventCode::EV_KEY(EV_KEY::BTN_TL),
+        bright_down2: EventCode::EV_KEY(EV_KEY::BTN_TRIGGER_HAPPY3),
+        bright_up2:   EventCode::EV_KEY(EV_KEY::BTN_TRIGGER_HAPPY4),
+        volume_up:    EventCode::EV_KEY(EV_KEY::KEY_VOLUMEUP),
+        volume_down:  EventCode::EV_KEY(EV_KEY::KEY_VOLUMEDOWN),
+        mute:         EventCode::EV_KEY(EV_KEY::KEY_PLAYPAUSE),
+    }
+}
 
-    Command::new("brightnessctl").args(&["-T","1.5"]).output().expect("Failed to execute brightnessctl");
-    Command::new("sleep").arg("0.1").output().expect("Failed to execute brightnessctl");
+fn parse_ev_key(name: &str) -> Option<EventCode> {
+    // 仅支持本程序实际用到的键名；够用且无依赖
+    let k = match name {
+        // DPAD
+        "BTN_DPAD_UP"    => EV_KEY::BTN_DPAD_UP,
+        "BTN_DPAD_DOWN"  => EV_KEY::BTN_DPAD_DOWN,
+        "BTN_DPAD_LEFT"  => EV_KEY::BTN_DPAD_LEFT,
+        "BTN_DPAD_RIGHT" => EV_KEY::BTN_DPAD_RIGHT,
+        // 肩键 / 触发键
+        "BTN_TL" => EV_KEY::BTN_TL,
+        "BTN_TR" => EV_KEY::BTN_TR,
+        "BTN_TL2" => EV_KEY::BTN_TL2,
+        "BTN_TR2" => EV_KEY::BTN_TR2,
+        // Trigger Happy
+        "BTN_TRIGGER_HAPPY1" => EV_KEY::BTN_TRIGGER_HAPPY1,
+        "BTN_TRIGGER_HAPPY2" => EV_KEY::BTN_TRIGGER_HAPPY2,
+        "BTN_TRIGGER_HAPPY3" => EV_KEY::BTN_TRIGGER_HAPPY3,
+        "BTN_TRIGGER_HAPPY4" => EV_KEY::BTN_TRIGGER_HAPPY4,
+        "BTN_TRIGGER_HAPPY5" => EV_KEY::BTN_TRIGGER_HAPPY5,
+        // 系统键
+        "KEY_VOLUMEUP"   => EV_KEY::KEY_VOLUMEUP,
+        "KEY_VOLUMEDOWN" => EV_KEY::KEY_VOLUMEDOWN,
+        "KEY_PLAYPAUSE"  => EV_KEY::KEY_PLAYPAUSE,
+        "KEY_POWER"      => EV_KEY::KEY_POWER,
+        // 常见选择/开始（可当热键）
+        "BTN_SELECT"     => EV_KEY::BTN_SELECT,
+        "BTN_START"      => EV_KEY::BTN_START,
+        _ => return None,
+    };
+    Some(EventCode::EV_KEY(k))
+}
 
-    Command::new("brightnessctl").arg("-I").output().expect("Failed to execute brightnessctl");
-    Command::new("sleep").arg("0.1").output().expect("Failed to execute brightnessctl");
+fn load_keys_from_conf(path: &str) -> Keys {
+    let mut keys = default_keys();
+    let data = std::fs::read_to_string(path).unwrap_or_default();
+    let mut map: HashMap<String,String> = HashMap::new();
 
-    Command::new("brightnessctl").args(&["-T","1.5"]).output().expect("Failed to execute brightnessctl");
-    Command::new("sleep").arg("0.1").output().expect("Failed to execute brightnessctl");
+    for line in data.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') { continue; }
+        if let Some((k, v)) = line.split_once('=') {
+            map.insert(k.trim().to_string(), v.trim().to_string());
+        }
+    }
 
-    Command::new("brightnessctl").arg("-I").output().expect("Failed to execute brightnessctl");
-}*/
+    // 小工具：把 map 里的某键名（如 "HOTKEY"）解析为 EventCode 并赋值
+    let mut set = |field: &str, dst: &mut EventCode| {
+        if let Some(name) = map.get(field) {
+            if let Some(code) = parse_ev_key(name) {
+                *dst = code;
+            } else {
+                eprintln!("ogage.conf: unknown key name for {} = {}", field, name);
+            }
+        }
+    };
 
-fn process_event(_dev: &Device, ev: &InputEvent, hotkey: bool) {
-//    println!("Event: time {}.{} type {} code {} value {} hotkey {}",
-//             ev.time.tv_sec,
-//             ev.time.tv_usec,
-//             ev.event_type,
-//             ev.event_code,
-//             ev.value,
-//             hotkey);
+    set("HOTKEY",        &mut keys.hotkey);
+    set("BRIGHT_UP",     &mut keys.bright_up);
+    set("BRIGHT_DOWN",   &mut keys.bright_down);
+    set("VOL_UP",        &mut keys.vol_up);
+    set("VOL_DOWN",      &mut keys.vol_down);
+    set("VOL_UP2",       &mut keys.vol_up2);
+    set("VOL_DOWN2",     &mut keys.vol_down2);
+    set("BRIGHT_DOWN2",  &mut keys.bright_down2);
+    set("BRIGHT_UP2",    &mut keys.bright_up2);
+    set("VOLUME_UP",     &mut keys.volume_up);
+    set("VOLUME_DOWN",   &mut keys.volume_down);
+    set("MUTE",          &mut keys.mute);
 
+    keys
+}
+// ---------------- 最小配置支持到此为止 ----------------
+
+/*fn blink1() { ... }*/
+/*fn blink2() { ... }*/
+
+fn process_event(_dev: &Device, ev: &InputEvent, hotkey: bool, k: &Keys) {
     if hotkey && ev.value == 1 {
-        if ev.event_code == BRIGHT_UP || ev.event_code == BRIGHT_UP2 {
+        if ev.event_code == k.bright_up || ev.event_code == k.bright_up2 {
             Command::new("brightnessctl").args(&["s","+2%"]).output().expect("Failed to execute brightnessctl");
-            //Command::new("brightnessctl").arg("-O").output().expect("Failed to execute brightnessctl");
         }
-        else if ev.event_code == BRIGHT_DOWN || ev.event_code == BRIGHT_DOWN2 {
+        else if ev.event_code == k.bright_down || ev.event_code == k.bright_down2 {
             Command::new("brightnessctl").args(&["-n","s","2%-"]).output().expect("Failed to execute brightnessctl");
-            //Command::new("brightnessctl").arg("-O").output().expect("Failed to execute brightnessctl");
         }
-        else if ev.event_code == VOL_UP || ev.event_code == VOL_UP2 {
+        else if ev.event_code == k.vol_up || ev.event_code == k.vol_up2 {
             Command::new("amixer").args(&["-q", "sset", "Playback", "1%+"]).output().expect("Failed to execute amixer");
         }
-        else if ev.event_code == VOL_DOWN || ev.event_code == VOL_DOWN2 {
+        else if ev.event_code == k.vol_down || ev.event_code == k.vol_down2 {
             Command::new("amixer").args(&["-q", "sset", "Playback", "1%-"]).output().expect("Failed to execute amixer");
         }
-        /*else if ev.event_code == PERF_MAX {
-            Command::new("sudo").args(&["perfmax", "On"]).output().expect("Failed to execute performance");
-            //blink1();
-        }
-        else if ev.event_code == PERF_NORM {
-            Command::new("sudo").arg("perfnorm").output().expect("Failed to execute performance");
-            //blink1();
-        }*/
         else if ev.event_code == EventCode::EV_KEY(EV_KEY::KEY_POWER) && ev.value > 0 {
-            //blink2();
             Command::new("finish.sh").spawn().ok().expect("Failed to execute shutdown process");
         }
-        /*else if ev.event_code == DARK_ON {
-            //Command::new("sudo").args(&["rfkill", "block", "all"]).output().expect("Failed to execute rfkill");
-            //blink1();
-        //}
-        //else if ev.event_code == DARK_OFF {
-            //Command::new("sudo").args(&["rfkill", "unblock", "all"]).output().expect("Failed to execute rfkill");
-            //blink1();
-        }*/
     }
     else if ev.event_code == EventCode::EV_SW(EV_SW::SW_HEADPHONE_INSERT) {
         let dest = match ev.value { 1 => "SPK", _ => "HP" };
         Command::new("amixer").args(&["-q", "sset", "'Playback Path'", dest]).output().expect("Failed to execute amixer");
-        //blink1();
     }
     else if ev.event_code == EventCode::EV_KEY(EV_KEY::KEY_POWER) && ev.value == 1 {
-        //blink2();
         Command::new("pause.sh").spawn().ok().expect("Failed to execute suspend process");
     }
-    else if ev.event_code == VOLUME_UP  && ev.value > 0 {
+    else if ev.event_code == k.volume_up  && ev.value > 0 {
         Command::new("amixer").args(&["-q", "sset", "Playback", "1%+"]).output().expect("Failed to execute amixer");
     }
-    else if ev.event_code == VOLUME_DOWN  && ev.value > 0 {
+    else if ev.event_code == k.volume_down  && ev.value > 0 {
         Command::new("amixer").args(&["-q", "sset", "Playback", "1%-"]).output().expect("Failed to execute amixer");
     }
-    else if ev.event_code == MUTE && ev.value > 0 {
+    else if ev.event_code == k.mute && ev.value > 0 {
         Command::new("mute_toggle.sh").output().expect("Failed to execute amixer");
     }
 }
 
 fn process_event2(_dev: &Device, ev: &InputEvent, selectkey: bool) {
-    /*println!("Event: time {}.{} type {} code {} value {} selectkey {}",
-             ev.time.tv_sec,
-             ev.time.tv_usec,
-             ev.event_type,
-             ev.event_code,
-             ev.value,
-             selectkey);*/
-
-    if selectkey{
+    if selectkey {
         if ev.event_code == EventCode::EV_KEY(EV_KEY::BTN_TRIGGER_HAPPY4) && ev.value == 1 {
             Command::new("speak_bat_life.sh").spawn().ok().expect("Failed to execute battery reading out loud");
         }
@@ -130,6 +167,9 @@ fn process_event2(_dev: &Device, ev: &InputEvent, selectkey: bool) {
 }
 
 fn main() -> io::Result<()> {
+    // 读取配置（若文件不存在或格式不对，会用默认键位）
+    let keys = load_keys_from_conf("/home/ark/ogage.conf");
+
     let mut poll = Poll::new()?;
     let mut events = Events::with_capacity(1);
     let mut devs: Vec<Device> = Vec::new();
@@ -137,7 +177,7 @@ fn main() -> io::Result<()> {
     let mut selectkey = false;
 
     let mut i = 0;
-for s in ["/dev/input/event10", "/dev/input/event9", "/dev/input/event8", "/dev/input/event7", "/dev/input/event6", "/dev/input/event5", "/dev/input/event4", "/dev/input/event3", "/dev/input/event2", "/dev/input/event1", "/dev/input/event0"].iter() {
+    for s in ["/dev/input/event10", "/dev/input/event9", "/dev/input/event8", "/dev/input/event7", "/dev/input/event6", "/dev/input/event5", "/dev/input/event4", "/dev/input/event3", "/dev/input/event2", "/dev/input/event1", "/dev/input/event0"].iter() {
         if !Path::new(s).exists() {
             println!("Path {} doesn't exist", s);
             continue;
@@ -151,8 +191,6 @@ for s in ["/dev/input/event10", "/dev/input/event9", "/dev/input/event8", "/dev/
         i += 1;
     }
 
-    //Command::new("brightnessctl").arg("-I").output().expect("Failed to execute brightnessctl");
-
     loop {
         poll.poll(&mut events, None)?;
 
@@ -161,14 +199,17 @@ for s in ["/dev/input/event10", "/dev/input/event9", "/dev/input/event8", "/dev/
             while dev.has_event_pending() {
                 let e = dev.next_event(evdev_rs::ReadFlag::NORMAL);
                 match e {
-                    Ok(k) => {
-                        let ev = &k.1;
-                        if ev.event_code == HOTKEY {
+                    Ok(kv) => {
+                        let ev = &kv.1;
+                        // 热键状态：用配置中的 hotkey
+                        if ev.event_code == keys.hotkey {
                             hotkey = ev.value == 1;
-                            //let grab = if hotkey { GrabMode::Grab } else { GrabMode::Ungrab };
-                            //dev.grab(grab)?;
+                            // let grab = if hotkey { GrabMode::Grab } else { GrabMode::Ungrab };
+                            // dev.grab(grab)?;
                         }
-                        process_event(&dev, &ev, hotkey);
+                        process_event(&dev, &ev, hotkey, &keys);
+
+                        // selectkey 保持原逻辑（你若想也改成可配置，可仿照 hotkey）
                         if ev.event_code == EventCode::EV_KEY(EV_KEY::BTN_TRIGGER_HAPPY1) {
                             selectkey = ev.value == 1 || ev.value == 2;
                         }
